@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 )
@@ -13,6 +14,8 @@ type Monitor struct {
 
 type Result struct {
 	StatusCode int
+	Duration   float64
+	Message    string
 }
 
 func main() {
@@ -27,12 +30,15 @@ func check(checks []*Monitor) ([]*Result, error) {
 		go func(i int, c *Monitor) {
 			defer wg.Done()
 			result := &Result{}
+			start := time.Now()
 			resp, err := http.Get(c.URL)
 			if err != nil {
 				result.StatusCode = -1
+				result.Message = err.Error()
 			} else {
 				result.StatusCode = resp.StatusCode
 			}
+			result.Duration = float64(time.Now().Sub(start)) / float64(time.Millisecond)
 			results[i] = result
 		}(i, c)
 	}
