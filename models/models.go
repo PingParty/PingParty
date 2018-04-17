@@ -5,5 +5,5 @@ type User struct {
 	LoginType string
 	LoginID   string
 	Email     string
-	LoginName *string
+	LoginName string
 }

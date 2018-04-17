@@ -29,29 +29,29 @@ func githubCallback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	// Get the state and code from the url parameters
 	if state != "abc" { //todo: compare with state stored in cookie
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		return
 	}
 	if code == "" {
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		return
 	}
 	// Now we go back to github and exchange the code for a valid oauth token.
 	token, err := githubConfig.Exchange(context.Background(), code)
 	if err != nil {
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		return
 	}
 	// Cool. We have a valid github token. Now let's learn about the github user they are:
 	ghInfo, err := getGithubInfo(token)
 	if err != nil {
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		return
 	}
 	// Awesome. Now we know who they are on github. Let's see if we have already created a user for them:
 	user, err := data.GetExistingThirdPartyUser("github", fmt.Sprint(ghInfo.ID))
 	if err != nil {
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		return
 	}
 	// We know them! Set a cookie and send them along!
@@ -62,9 +62,9 @@ func githubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	// Never seen them before. Let's get some information from them to get the email they want to use, and we can create an account.
 	// First, let's get their emails from github:
-	emails, err := getGithubEmails(token)
+	email, err := getPrimaryGithubEmail(token)
 	if err != nil {
-		http.Error(w, "Oauth Error", 400)
+		errPage(w, "Oauth Error")
 		fmt.Println(err)
 		return
 	}
@@ -72,10 +72,11 @@ func githubCallback(w http.ResponseWriter, r *http.Request) {
 	user = &models.User{
 		LoginType: "github",
 		LoginID:   fmt.Sprint(ghInfo.ID),
-		LoginName: &ghInfo.Login,
+		LoginName: ghInfo.Login,
+		Email:     email,
 	}
-	setCookie("signupUser", user, 10, w)
-	templates.ExecuteTemplate(w, "createUser.html", emails)
+	setShortCookie("signupUser", user, w)
+	http.Redirect(w, r, "/signup", http.StatusTemporaryRedirect)
 }
 
 type githubLoginInfo struct {
@@ -84,7 +85,7 @@ type githubLoginInfo struct {
 	Email string `json:"email"`
 }
 type githubEmail struct {
-	Email   string `json: "email"`
+	Email   string `json:"email"`
 	Primary bool   `json:"primary"`
 }
 
@@ -108,10 +109,18 @@ func githubGet(token *oauth2.Token, url string, dest interface{}) error {
 	return dec.Decode(dest)
 }
 
-func getGithubEmails(token *oauth2.Token) ([]githubEmail, error) {
+func getPrimaryGithubEmail(token *oauth2.Token) (string, error) {
 	emails := []githubEmail{}
 	if err := githubGet(token, "https://api.github.com/user/emails", &emails); err != nil {
-		return nil, err
+		return "", err
 	}
-	return emails, nil
+	for _, e := range emails {
+		if e.Primary {
+			return e.Email, nil
+		}
+	}
+	if len(emails) > 0 {
+		return emails[0].Email, nil
+	}
+	return "", nil
 }
