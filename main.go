@@ -52,24 +52,26 @@ func homepage(w http.ResponseWriter, r *http.Request) {
 }
 
 func signupForm(w http.ResponseWriter, r *http.Request) {
-	user := &models.User{}
-	err := getCookie("signupUser", user, r)
-	if err != nil {
+	sess, _ := cookieStore.Get(r, cookieNameAuth)
+	// TODO: handle session error
+	u, ok := sess.Values["user"].(*models.User)
+	if !ok {
 		errPage(w, "No login found. Please go to /login")
 		return
 	}
-	render(w, "signup.html", user)
+	render(w, "signup.html", u)
 }
 
 func completeSignup(w http.ResponseWriter, r *http.Request) {
-	user := &models.User{}
-	err := getCookie("signupUser", user, r)
-	if err != nil {
+	sess, _ := cookieStore.Get(r, cookieNameAuth)
+	// TODO: handle session error
+	u, ok := sess.Values["user"].(*models.User)
+	if !ok {
 		errPage(w, "No login found. Please go to /login")
 		return
 	}
 	r.ParseForm()
-	fmt.Println(user, r.FormValue("email"))
+	fmt.Println(u, r.FormValue("email"))
 }
 
 func errPage(w http.ResponseWriter, msg string) {

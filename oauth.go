@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
 	"github.com/PingParty/PingParty/models"
+	"github.com/gorilla/sessions"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 )
@@ -19,16 +24,52 @@ var githubConfig = &oauth2.Config{
 	Scopes:       []string{"user:email"},
 }
 
+var cookieStore sessions.Store
+
+func init() {
+	secret := []byte(os.Getenv("SECRET"))
+	hashKey := sha256.Sum256(secret)
+	cookieStore = sessions.NewCookieStore(hashKey[:])
+}
+
+const (
+	cookieNameAuth = "ath"
+)
+
+func randomString(l int) string {
+	dat := make([]byte, l)
+	rand.Read(dat)
+	return base64.StdEncoding.EncodeToString(dat)
+}
+
 func redirectToGithub(w http.ResponseWriter, r *http.Request) {
-	state := "abc" // TODO: random state. Stored in cookie
+	state := randomString(12)
+	sess, err := cookieStore.Get(r, cookieNameAuth)
+	if err != nil {
+		log.Println("SESSION ERROR", err)
+	} else {
+		sess.AddFlash(state, "state")
+		sess.Save(r, w)
+	}
 	http.Redirect(w, r, githubConfig.AuthCodeURL(state), http.StatusTemporaryRedirect)
 }
 
 func githubCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
+	sess, err := cookieStore.Get(r, cookieNameAuth)
+	if err != nil {
+		errPage(w, "Oauth Error")
+		return
+	}
 	// Get the state and code from the url parameters
-	if state != "abc" { //todo: compare with state stored in cookie
+	storedState := sess.Flashes("state")
+	if len(storedState) == 0 {
+		errPage(w, "Oauth Error")
+		return
+	}
+	expected, ok := storedState[0].(string)
+	if !ok || state != expected { //todo: compare with state stored in cookie
 		errPage(w, "Oauth Error")
 		return
 	}
@@ -54,9 +95,10 @@ func githubCallback(w http.ResponseWriter, r *http.Request) {
 		errPage(w, "Oauth Error")
 		return
 	}
+	defer sess.Save(r, w)
 	// We know them! Set a cookie and send them along!
 	if user != nil {
-		setSessionCookie(user, w)
+		sess.Values["user"] = user
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect) // todo: get destination from cookie
 		return
 	}
@@ -75,7 +117,7 @@ func githubCallback(w http.ResponseWriter, r *http.Request) {
 		LoginName: ghInfo.Login,
 		Email:     email,
 	}
-	setShortCookie("signupUser", user, w)
+	sess.Values["user"] = user
 	http.Redirect(w, r, "/signup", http.StatusTemporaryRedirect)
 }
 
