@@ -8,6 +8,10 @@
     ],
     "rewrites": [
       {
+        "source": "/dist/**",
+        "destination": "/somethingthatdontexist.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
